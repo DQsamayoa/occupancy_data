@@ -1,0 +1,48 @@
+---
+title: "Prueba de Ciencia de Datos para VinkOS"
+author: "Victor Samayoa"
+date: "22/12/2017"
+output: html_document
+---
+
+# Introducción
+
+Para este ejercicio se utiliza la base de datos obtenida en UCI / Machine Learning Repository: https://archive.ics.uci.edu/ml/datasets/Occupancy+Detection+
+
+Los datos que existen son para realizar un modelo de clasificación, y así poder predecir si un cuarto está ocupado o no (room occupancy), tomando en cuenta las mediciones de temperatura, humedad, luz y CO2.
+
+La clasificación original se obtuvo de ver fotos con una estampa de tiempo que se tomaban cada minuto.
+
+**Fuente:**
+
+Luis Candanedo, luismiguel.candanedoibarra '@' umons.ac.be, UMONS.
+
+**Información del Data Set:**
+
+Existen tres conjuntos de datos, uno para entrenamiento (datatraining.txt) y dos para prueba
+(datatest.txt, datatest2.txt).
+
+**Los datos se pueden descargar en un archivo .zip de la siguiente dirección:**
+
+https://archive.ics.uci.edu/ml/machine-learning-databases/00357/
+
+**Información de los atributos:**
+
+*Estampa de tiempo:* date time year-month-day hour:minute:second
+
+*Temperatura en Celsius:* Temperature
+
+*Humedad relativa en porcentaje:* Relative Humidity, %
+
+*Luz en lux:* Light
+
+*Bióxido de Carbono en ppm:* CO2
+
+*Cociente de humedad:* Calculado de la temperatura y la humedad relativa, en kg agua-vapor /kg-aire
+
+*Ocupación* (0 para no ocupado, 1 para ocupado)
+
+# Prueba
+
+El ejercicio consiste en crear y comparar la precisión de dos modelos de clasificación, a elegir por el candidato.
+Los modelos se deben entrenar utilizando los datos de entrenamiento (training set), y calificarlos utilizando los datos de prueba (test sets).

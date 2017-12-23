@@ -46,3 +46,62 @@ https://archive.ics.uci.edu/ml/machine-learning-databases/00357/
 
 El ejercicio consiste en crear y comparar la precisión de dos modelos de clasificación, a elegir por el candidato.
 Los modelos se deben entrenar utilizando los datos de entrenamiento (training set), y calificarlos utilizando los datos de prueba (test sets).
+
+# Solución
+
+La primer etapa para la resolución de este problema será fijar el directorio de trabajo, cargar las librerias a usar e importar los datasets proporcionados.
+```{r, warning = FALSE, message = FALSE}
+# Se fija el directorio de trabajo. Todas las ubicaciones serán relativas a este directorio.
+setwd("~/proyectos/proyectos/Github/occupancy_data/Occupancy_Detection")
+
+# Se cargan las librerias a usar
+library("readr")
+library("stringr")
+library("dplyr")
+library("tidyr")
+library("randomForest")
+
+# Se importan los datasets
+# Entrenamiento
+entrenamiento <- read_delim("datos/datatraining.txt", delim = ",", skip = 1, col_names = FALSE) %>%
+                 select(-X1)
+
+names(entrenamiento) <- read_delim("datos/datatraining.txt", delim = ",", n_max = 1, col_names = FALSE) %>%
+                      t(.) %>%
+                      as.vector(.)
+
+# Test1
+validacion <- read_delim("datos/datatest.txt", delim = ",", skip = 1, col_names = FALSE) %>%
+                 select(-X1)
+
+names(validacion) <- read_delim("datos/datatraining.txt", delim = ",", n_max = 1, col_names = FALSE) %>%
+                      t(.) %>%
+                      as.vector(.)
+
+# Test2
+prueba <- read_delim("datos/datatest2.txt", delim = ",", skip = 1, col_names = FALSE) %>%
+                 select(-X1)
+
+names(prueba) <- read_delim("datos/datatest2.txt", delim = ",", n_max = 1, col_names = FALSE) %>%
+                      t(.) %>%
+                      as.vector(.)
+
+# Vemos el sumario de los datasets para ver si es necesario limpiar los datos
+summary(entrenamiento)
+summary(validacion)
+summary(prueba)
+```
+
+Se los sumarios de los datos podemos identificar que no hay valores faltantes en ninguna variable y todas las variables tienen el tipo de variable que les corresponde; en este caso fecha y numéricas, según el caso.
+
+Se procede ahora a separar la variable de fecha para obtener la hora y el día en distintas columnas
+```{r}
+# Separamos el día y la hora
+entrenamiento <- entrenamiento %>%
+                 mutate(Hour = substr(date, start = 12, stop = 19)) %>%
+                 mutate(Day = substr(date, start = 1, stop = 10)) %>%
+                 select(-date)
+
+summary(entrenamiento)
+```
+

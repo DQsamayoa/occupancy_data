@@ -59,7 +59,9 @@ library("readr")
 library("stringr")
 library("dplyr")
 library("tidyr")
+library("lubridate")
 library("randomForest")
+library("feather")
 
 # Se importan los datasets
 # Entrenamiento
@@ -96,12 +98,389 @@ Se los sumarios de los datos podemos identificar que no hay valores faltantes en
 
 Se procede ahora a separar la variable de fecha para obtener la hora y el día en distintas columnas
 ```{r}
-# Separamos el día y la hora
+# Generamos algunas variables nuevas a partir de la variable date
+# Variable día de la semana
+entrenamiento$weekday <- entrenamiento$date %>%
+                         weekdays.POSIXt(.) %>%
+                         as.factor(.)
+
+# Variable hora
+entrenamiento$hora <- entrenamiento$date %>%
+                      format('%H') %>%
+                      as.numeric(.)
+
+# Variable tiempo que representa la hora, minuto y segundo en formato decimal                      
+entrenamiento$tiempo <- entrenamiento$date %>%
+                        sapply(function(t) {hour(t)*100 + minute(t)*10/6 + second(t)/60})
+
+# Generamos variables periodicas para el tiempo con el objetivo de representar 23 y 0 hrs como valores cercanos
 entrenamiento <- entrenamiento %>%
-                 mutate(Hour = substr(date, start = 12, stop = 19)) %>%
-                 mutate(Day = substr(date, start = 1, stop = 10)) %>%
-                 select(-date)
+                 mutate(x.hora = cos(2*pi*hora/24), y.hora = sin(2*pi*hora/24)) %>%
+                 mutate(x.tiempo = cos(2*pi*tiempo/2400), y.tiempo = sin(2*pi*tiempo/2400)) %>%
+                 select(-c(date, hora, tiempo))
+
+entrenamiento$Occupancy <- entrenamiento$Occupancy %>%
+                           as.factor(.)
 
 summary(entrenamiento)
+```
+
+Ya que se construyeron las nuevas variables, se procede a normalizar las variables para mejorar la convergencia de algunos métodos numéricos.
+```{r}
+# Se calcula la media y desviación estándar de las variables a normalizar
+datos_norm <- entrenamiento %>% 
+              select(-c(Occupancy, weekday), -starts_with("x."), -starts_with("y.")) %>%
+              gather(key = variable, value = valor) %>%
+              group_by(variable) %>%
+              summarise(m = mean(valor), s = sd(valor))
+
+entrenamiento_norm <- entrenamiento %>%
+                      gather(key = variable, value = valor, -Occupancy, -weekday, -starts_with("x."), -starts_with("y.")) %>%
+                      left_join(datos_norm, by = "variable") %>%
+                      mutate(valor_s = (valor - m)/s) %>%
+                      select(Occupancy, weekday, starts_with("x."), starts_with("y."), variable, valor_s) %>%
+                      spread(variable, valor_s)
+```
+
+Se procede a calcular un bosque aleatorio con el objetivo de identificar y elegir las variables de mayor importancia para el dataset que se usarán para generar los modelos.
+```{r}
+# Se seleccionan las variables independientes
+var_ind <- entrenamiento_norm %>%
+           select(-Occupancy) %>%
+           as.data.frame(.)
+
+# Se selecciona la variable dependiente/objetivo
+var_dep <- entrenamiento_norm$Occupancy
+
+# Se genera un bosque aleatorio
+rf <- randomForest(var_ind, var_dep, ntree = 1000, mtry = 5, importance = TRUE, replace = TRUE, na.action = na.omit)
+
+# Se grafica la importancia de las variables
+varImpPlot(rf)
+
+```
+
+A partir de esto, se decide quitar las variales x.hora, y.hora, weekday y HumidityRatio del dataset y entrenar los modelos con las variables restantes.
+
+** Datos de entrenamiento**
+```{r}
+# Exportamos los datos normalizados
+# Entrenamiento
+entrenamiento_norm %>% 
+  select(-x.hora, -y.hora, -weekday, -HumidityRatio) %>%
+  write_feather(path = "datos/entrena.feather")
+```
+
+Para los datos de validación y de prueba se deben crear las nuevas variables y normalizar a partir de los datos de entrenamiento.
+
+**Validación**
+```{r}
+# Validacion
+# Generamos algunas variables nuevas a partir de la variable date
+# Variable día de la semana
+validacion$weekday <- validacion$date %>%
+                      weekdays.POSIXt(.) %>%
+                      as.factor(.)
+
+# Variable hora
+validacion$hora <- validacion$date %>%
+                   format('%H') %>%
+                   as.numeric(.)
+
+# Variable tiempo que representa la hora, minuto y segundo en formato decimal                      
+validacion$tiempo <- validacion$date %>%
+                     sapply(function(t) {hour(t)*100 + minute(t)*10/6 + second(t)/60})
+
+# Generamos variables periodicas para el tiempo con el objetivo de representar 23 y 0 hrs como valores cercanos
+validacion <- validacion %>%
+              mutate(x.hora = cos(2*pi*hora/24), y.hora = sin(2*pi*hora/24)) %>%
+              mutate(x.tiempo = cos(2*pi*tiempo/2400), y.tiempo = sin(2*pi*tiempo/2400)) %>%
+              select(-c(date, hora, tiempo))
+
+validacion$Occupancy <- validacion$Occupancy %>%
+                        as.factor(.)
+
+validacion %>%
+  gather(key = variable, value = valor, -Occupancy, -weekday, -starts_with("x."), -starts_with("y.")) %>%
+  left_join(datos_norm, by = "variable") %>%
+  mutate(valor_s = (valor - m)/s) %>%
+  select(Occupancy, weekday, starts_with("x."), starts_with("y."), variable, valor_s) %>%
+  spread(variable, valor_s) %>%
+  select(-x.hora, -y.hora, -weekday, -HumidityRatio) %>%
+  write_feather(path = "datos/validacion.feather")
+
+print("Se exportaron los datos de validación normalizados")
+```
+
+**Prueba**
+```{r}
+# Prueba
+# Generamos algunas variables nuevas a partir de la variable date
+# Variable día de la semana
+prueba$weekday <- prueba$date %>%
+                  weekdays.POSIXt(.) %>%
+                  as.factor(.)
+
+# Variable hora
+prueba$hora <- prueba$date %>%
+               format('%H') %>%
+               as.numeric(.)
+
+# Variable tiempo que representa la hora, minuto y segundo en formato decimal                      
+prueba$tiempo <- prueba$date %>%
+                 sapply(function(t) {hour(t)*100 + minute(t)*10/6 + second(t)/60})
+
+# Generamos variables periodicas para el tiempo con el objetivo de representar 23 y 0 hrs como valores cercanos
+prueba <- prueba %>%
+          mutate(x.hora = cos(2*pi*hora/24), y.hora = sin(2*pi*hora/24)) %>%
+          mutate(x.tiempo = cos(2*pi*tiempo/2400), y.tiempo = sin(2*pi*tiempo/2400)) %>%
+          select(-c(date, hora, tiempo))
+
+prueba$Occupancy <- prueba$Occupancy %>%
+                    as.factor(.)
+
+prueba %>%
+  gather(key = variable, value = valor, -Occupancy, -weekday, -starts_with("x."), -starts_with("y.")) %>%
+  left_join(datos_norm, by = "variable") %>%
+  mutate(valor_s = (valor - m)/s) %>%
+  select(Occupancy, weekday, starts_with("x."), starts_with("y."), variable, valor_s) %>%
+  spread(variable, valor_s) %>%
+  select(-x.hora, -y.hora, -weekday, -HumidityRatio) %>%
+  write_feather(path = "datos/prueba.feather")
+
+print("Se exportaron los datos de prueba normalizados")
+```
+
+Ya que se tienen los datos normalizados (a partir de la información del data set de entrenamiento) y exportados en formato "feather" se procedea importarlos a python para generar los modelos.
+
+### Bosque aleatorio
+
+El primer modelo a generar será basado en bosques aleatorios, para esto, se crearan diversos bosques con los datos de entrenamiento y se validaran con el datatest.txt para elegir el número de arboles con los que se generará el modelo final. Cabe destacar que el modelo final será generadó usando tanto los datos de entrenamiento como de validación y la calificación final se realizará con el datatest2.txt.
+
+```{python, engine.path = "/usr/bin/python3"}
+# Importamos las librerias a usar en python
+import feather
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns; sns.set()
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import cross_val_score
+from sklearn import metrics
+from sklearn.metrics import confusion_matrix
+
+# Importamos los datos
+# Entrenamiento
+entrena = feather.read_dataframe("datos/entrena.feather")
+X_entrena = entrena.drop('Occupancy', axis = 1)
+y_entrena = entrena['Occupancy']
+
+# Validacion
+valida = feather.read_dataframe("datos/validacion.feather")
+X_valida = valida.drop('Occupancy', axis = 1)
+y_valida = valida['Occupancy']
+
+# Se cargan los parámetros iniciales de los modelos
+# n_estimators: número de árboles en el bosque
+# max_depth: Indica que tan "extendido" será el arbol, None permite la mayor cantidad posible
+rf_model1 = RandomForestClassifier(n_estimators = 45, max_depth = None, random_state = 20170302)
+rf_model2 = RandomForestClassifier(n_estimators = 35, max_depth = None, random_state = 20170302)
+rf_model3 = RandomForestClassifier(n_estimators = 25, max_depth = None, random_state = 20170302)
+rf_model4 = RandomForestClassifier(n_estimators = 15, max_depth = None, random_state = 20170302)
+
+# Se entrenan los modelos
+rf_model1.fit(X_entrena, y_entrena)
+rf_model2.fit(X_entrena, y_entrena)
+rf_model3.fit(X_entrena, y_entrena)
+rf_model4.fit(X_entrena, y_entrena)
+
+# Se usa el conjunto de validación para evaluar cada uno de los modelos y elegir los hiperparámetros
+y_modelo1 = rf_model1.predict(X_valida)
+y_modelo2 = rf_model2.predict(X_valida)
+y_modelo3 = rf_model3.predict(X_valida)
+y_modelo4 = rf_model4.predict(X_valida)
+
+# Se calculan las matrices de confusión para cada modelo
+mat1 = confusion_matrix(y_valida, y_modelo1)
+mat2 = confusion_matrix(y_valida, y_modelo2)
+mat3 = confusion_matrix(y_valida, y_modelo3)
+mat4 = confusion_matrix(y_valida, y_modelo4)
+
+# Se generarn las métricas de cada modelo
+print("Modelo 1")
+print(mat1)
+print(metrics.classification_report(y_modelo1, y_valida))
+
+print("Modelo 2")
+print(mat2)
+print(metrics.classification_report(y_modelo2, y_valida))
+
+print("Modelo 3")
+print(mat3)
+print(metrics.classification_report(y_modelo3, y_valida))
+
+print("Modelo 4")
+print(mat4)
+print(metrics.classification_report(y_modelo4, y_valida))
+```
+Se observa que los modelos 1, 2 y 3 son practicamente iguales. Sin embargo, a partir de la matriz de confusión, se nota que el Modelo 2 tiene un menor número de falsos negativos. Por tal motivo, se usarán los hiperparámetros del modelo 2 para el modelo final de bosques aleatorios
+
+### Redes neuronales
+
+El segundo modelo a generar será basado en redes neuronales, para esto, se crearan diversos bosques con los datos de entrenamiento y se validaran con el datatest.txt para elegir el número de capas ocultas y el número de neuronas de cada capa con los que se generará el modelo final. Cabe destacar que el modelo final será generadó usando tanto los datos de entrenamiento como de validación y la calificación final se realizará con el datatest2.txt.
+
+```{python, engine.path = "/usr/bin/python3"}
+# Importamos las librerias a usar en python
+import feather
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns; sns.set()
+from sklearn.neural_network import MLPClassifier
+from sklearn.model_selection import cross_val_score
+from sklearn import metrics
+from sklearn.metrics import confusion_matrix
+
+# Importamos los datos
+# Entrenamiento
+entrena = feather.read_dataframe("datos/entrena.feather")
+X_entrena = entrena.drop('Occupancy', axis = 1)
+y_entrena = entrena['Occupancy']
+
+# Validacion
+valida = feather.read_dataframe("datos/validacion.feather")
+X_valida = valida.drop('Occupancy', axis = 1)
+y_valida = valida['Occupancy']
+
+# Se cargan los parámetros iniciales de los modelos
+nn_model1 = MLPClassifier(hidden_layer_sizes = (15, 2), activation = 'logistic', solver = 'adam', max_iter = 1000,
+                          alpha = 1e-4, random_state = 20120302)
+nn_model2 = MLPClassifier(hidden_layer_sizes = (7, 7, 7), activation = 'logistic', solver = 'adam', max_iter = 1000,
+                          alpha = 1e-4, random_state = 19771103)
+nn_model3 = MLPClassifier(hidden_layer_sizes = (7, 5, 3, 2), activation = 'logistic', solver = 'adam', max_iter = 1000,
+                          alpha = 1e-4, random_state = 19850617)
+nn_model4 = MLPClassifier(hidden_layer_sizes = (10, 7, 7, 5, 2), activation = 'logistic', solver = 'adam', max_iter = 1000,
+                          alpha = 1e-4, random_state = 20040810)
+
+# Se usa cross validation para asegurar no se están sobreajustando los modelos antes de evaluarlos con validación 
+scores1 = cross_val_score(nn_model1, X_entrena, y_entrena, cv=10)
+scores2 = cross_val_score(nn_model2, X_entrena, y_entrena, cv=10)
+scores3 = cross_val_score(nn_model3, X_entrena, y_entrena, cv=10)
+scores4 = cross_val_score(nn_model4, X_entrena, y_entrena, cv=10)
+
+# Verificamos el promedio de los scores para corregir el sobreajuste en caso de que los valores sean bajos
+print("Modelo 1")
+print(scores1)
+print(np.mean(scores1))
+
+print("Modelo 2")
+print(scores2)
+print(np.mean(scores2))
+
+print("Modelo 3")
+print(scores3)
+print(np.mean(scores3))
+
+print("Modelo 4")
+print(scores4)
+print(np.mean(scores4))
+
+# Se entrenan los modelos
+nn_model1.fit(X_entrena, y_entrena)
+nn_model2.fit(X_entrena, y_entrena)
+nn_model3.fit(X_entrena, y_entrena)
+nn_model4.fit(X_entrena, y_entrena)
+
+# Se usa el conjunto de validación para evaluar cada uno de los modelos y elegir los hiperparámetros
+y_model1 = nn_model1.predict(X_valida)
+y_model2 = nn_model2.predict(X_valida)
+y_model3 = nn_model3.predict(X_valida)
+y_model4 = nn_model4.predict(X_valida)
+
+# Se calculan las matrices de confusión para cada modelo
+mat1 = confusion_matrix(y_valida, y_model1)
+mat2 = confusion_matrix(y_valida, y_model2)
+mat3 = confusion_matrix(y_valida, y_model3)
+mat4 = confusion_matrix(y_valida, y_model4)
+
+# Se generarn las métricas de cada modelo
+print("Modelo 1")
+print(mat1)
+print(metrics.classification_report(y_model1, y_valida))
+
+print("Modelo 2")
+print(mat2)
+print(metrics.classification_report(y_model2, y_valida))
+
+print("Modelo 3")
+print(mat3)
+print(metrics.classification_report(y_model3, y_valida))
+
+print("Modelo 4")
+print(mat4)
+print(metrics.classification_report(y_model4, y_valida))
+
+```
+
+En este caso se observa que los hiperparámetros del modelo 1 son los que mejor funcionan para la red neuronal, por tal motivo se usaran para generar el segundo modelo.
+
+## Modelos finales
+
+
+Por tal motivo se procede a calcular un modelo de bosques aleatorios usando tanto los datos de entrenamiento como de validación con los parámetros del modelo 2.
+```{python, engine.path = "/usr/bin/python3"}
+# Importamos las librerias a usar en python
+import feather
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns; sns.set()
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.neural_network import MLPClassifier
+from sklearn.model_selection import cross_val_score
+from sklearn import metrics
+from sklearn.metrics import confusion_matrix
+
+# Importamos los datos
+# Entrenamiento
+entrena = feather.read_dataframe("datos/entrena.feather")
+
+# Validacion
+valida = feather.read_dataframe("datos/validacion.feather")
+
+# Prueba
+prueba = feather.read_dataframe("datos/prueba.feather")
+X_prueba = prueba.drop('Occupancy', axis = 1)
+y_prueba = prueba['Occupancy']
+
+# Concatenamos los datos para generar el modelo final
+tot_entrena = pd.concat([entrena, valida], ignore_index = True)
+X_tot_entrena = tot_entrena.drop('Occupancy', axis = 1)
+y_tot_entrena = tot_entrena['Occupancy']
+
+# Bosque aleatorio
+rf_model_final = RandomForestClassifier(n_estimators = 35, max_depth = None, random_state = 20170302)
+rf_model_final.fit(X_tot_entrena, y_tot_entrena)
+y_model_final_rf = rf_model_final.predict(X_prueba)
+
+# Red neuronal
+nn_model_final = MLPClassifier(hidden_layer_sizes = (15, 2), activation = 'logistic', solver = 'adam', max_iter = 1000,
+                          alpha = 1e-4, random_state = 20120302)
+nn_model_final.fit(X_tot_entrena, y_tot_entrena)
+y_model_final_nn = nn_model_final.predict(X_prueba)
+
+# Se calculan las matrices de confusión para cada modelo
+rf_mat = confusion_matrix(y_prueba, y_model_final_rf)
+nn_mat = confusion_matrix(y_prueba, y_model_final_nn)
+
+# Se generarn las métricas de cada modelo
+print("Modelo RF Final")
+print(rf_mat)
+print(metrics.classification_report(y_model_final_rf, y_prueba))
+
+print("Modelo NN Final")
+print(nn_mat)
+print(metrics.classification_report(y_model_final_nn, y_prueba))
+
 ```
 

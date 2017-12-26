@@ -440,6 +440,7 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.model_selection import cross_val_score
 from sklearn import metrics
 from sklearn.metrics import confusion_matrix
+from sklearn.externals import joblib
 
 # Importamos los datos
 # Entrenamiento
@@ -482,5 +483,61 @@ print("Modelo NN Final")
 print(nn_mat)
 print(metrics.classification_report(y_model_final_nn, y_prueba))
 
+# Se exportan los modelos para tenerlos disponibles para futuras predicciones
+joblib.dump(rf_model_final, 'modelos/rf_final.pkl', compress=9)
+joblib.dump(nn_model_final, 'modelos/nn_final.pkl', compress=9)
+
 ```
 
+## comparación de los modelos
+
+```{python, engine.path = "/usr/bin/python3"}
+# Importamos las librerias a usar en python
+import feather
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns; sns.set()
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.neural_network import MLPClassifier
+from sklearn.model_selection import cross_val_score
+from sklearn import metrics
+from sklearn.metrics import confusion_matrix
+from sklearn.externals import joblib
+
+# Prueba
+prueba = feather.read_dataframe("datos/prueba.feather")
+X_prueba = prueba.drop('Occupancy', axis = 1)
+y_prueba = prueba['Occupancy']
+
+# Importamos los modelos para el análisis
+model_clone = joblib.load('my_model.pkl')
+```
+
+
+def plot_precision_recall_n(y_true, y_prob, model_name):
+    from sklearn.metrics import precision_recall_curve
+    y_score = y_prob
+    precision_curve, recall_curve, pr_thresholds = precision_recall_curve(y_true, y_score)
+    precision_curve = precision_curve[:-1]
+    recall_curve = recall_curve[:-1]
+    pct_above_per_thresh = []
+    number_scored = len(y_score)
+    for value in pr_thresholds:
+        num_above_thresh = len(y_score[y_score>=value])
+        pct_above_thresh = num_above_thresh / float(number_scored)
+        pct_above_per_thresh.append(pct_above_thresh)
+    pct_above_per_thresh = np.array(pct_above_per_thresh)
+    plt.clf()
+    fig, ax1 = plt.subplots()
+    ax1.plot(pct_above_per_thresh, precision_curve, 'b')
+    ax1.set_xlabel('percent of population')
+    ax1.set_ylabel('precision', color='b')
+    ax2 = ax1.twinx()
+    ax2.plot(pct_above_per_thresh, recall_curve, 'r')
+    ax2.set_ylabel('recall', color='r')
+
+    name = model_name
+    plt.title(name)
+    #plt.savefig(name)
+    plt.show()

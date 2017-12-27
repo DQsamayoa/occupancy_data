@@ -489,8 +489,11 @@ joblib.dump(nn_model_final, 'modelos/nn_final.pkl', compress=9)
 
 ```
 
-## comparación de los modelos
+## Comparación de los modelos
 
+### Curva ROC
+
+Primero se analizará el comportamiento de los modelos de acuerdo a diversos valores de corte para asignar la clase a partir de las probabilidades, para esto, se usará la curva ROC.
 ```{python, engine.path = "/usr/bin/python3"}
 # Importamos las librerias a usar en python
 import feather
@@ -504,14 +507,44 @@ from sklearn.model_selection import cross_val_score
 from sklearn import metrics
 from sklearn.metrics import confusion_matrix
 from sklearn.externals import joblib
+from sklearn.metrics import roc_curve, auc
 
-# Prueba
+# Importamos los odatso de pruebaPrueba
 prueba = feather.read_dataframe("datos/prueba.feather")
 X_prueba = prueba.drop('Occupancy', axis = 1)
 y_prueba = prueba['Occupancy']
 
 # Importamos los modelos para el análisis
-model_clone = joblib.load('my_model.pkl')
+rf_final = joblib.load('modelos/rf_final.pkl')
+nn_final = joblib.load('modelos/nn_final.pkl')
+
+# Se calculan las probabilidades de cada modelo
+rf_y_probas = rf_final.predict_proba(X_prueba)
+nn_y_probas = nn_final.predict_proba(X_prueba)
+
+
+y_prueba = np.array(pd.DataFrame([pd.to_numeric(y_prueba), 1-pd.to_numeric(y_prueba)]).transpose())
+rf_fpr = dict()
+rf_tpr = dict()
+rf_roc_auc = dict()
+for i in range(2):
+    rf_fpr[i], rf_tpr[i], _ = roc_curve(y_prueba[:, i], rf_y_probas[:, i])
+    rf_roc_auc[i] = auc(rf_fpr[i], rf_tpr[i])
+
+# Se grafica la curva ROC para ambos modelos
+plt.figure()
+lw = 2
+plt.plot(rf_fpr[0], rf_tpr[0], color='darkorange',
+         lw=lw, label='ROC curve (area = %0.2f)' % rf_roc_auc[0])
+plt.plot([0, 1], [0, 1], color='navy', lw=lw, linestyle='--')
+plt.xlim([0.0, 1.0])
+plt.ylim([0.0, 1.05])
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('Receiver operating characteristic example')
+plt.legend(loc="lower right")
+plt.show()
+
 ```
 
 
